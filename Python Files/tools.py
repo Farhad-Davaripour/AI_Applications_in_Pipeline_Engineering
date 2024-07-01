@@ -128,61 +128,97 @@ class Anomaly_mapping:
         return self.df
     
 
-def plot_anomalies(anomalies_df, year1, year2):
-    # Filter data for the two consecutive years
-    df_year1 = anomalies_df[anomalies_df['InspectionYear'] == year1]
-    df_year2 = anomalies_df[anomalies_df['InspectionYear'] == year2]
+def plot_anomalies_by_year(anomalies_df, figsize=(15, 6)):
+    # Get unique years
+    years = sorted(anomalies_df['InspectionYear'].unique())
+    num_years = len(years)
     
-    # Create the plot
-    fig, ax = plt.subplots(figsize=(15,12))
+    # Create subplots
+    fig, axes = plt.subplots(num_years, 1, figsize=(figsize[0], figsize[1] * num_years), sharex=True)
+    if num_years == 1:
+        axes = [axes]
     
-    # Plot anomalies for year1
-    ax.scatter(df_year1['RelativeDistance_m'], df_year1['SignificantPointOrientation_deg'], label=f'Year {year1}', c='blue', marker='o')
+    # Find global x limits
+    x_min = np.floor(anomalies_df['RelativeDistance_m'].min() * 10) / 10
+    x_max = np.ceil(anomalies_df['RelativeDistance_m'].max() * 10) / 10
     
-    # Annotate anomalies for year1
-    for i, row in df_year1.iterrows():
-        ax.annotate(f'T:{row["Tag"]}', 
-                    (row['RelativeDistance_m'], row['SignificantPointOrientation_deg']),
-                    textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, color='blue')
+    for i, year in enumerate(years):
+        ax = axes[i]
+        df_year = anomalies_df[anomalies_df['InspectionYear'] == year]
+        
+        # Plot anomalies for the year
+        new_anomalies = df_year[df_year['Tag'] != 'old']
+        old_anomalies = df_year[df_year['Tag'] == 'old']
+        
+        ax.scatter(new_anomalies['RelativeDistance_m'], new_anomalies['SignificantPointOrientation_deg'], 
+                   label='New Anomalies', c='blue', marker='o')
+        ax.scatter(old_anomalies['RelativeDistance_m'], old_anomalies['SignificantPointOrientation_deg'], 
+                   label='Old Anomalies', c='red', marker='o')
+        
+        # Annotate anomalies
+        for _, row in df_year.iterrows():
+            color = 'red' if row['Tag'] == 'old' else 'blue'
+            ax.annotate(f'T:{row["Tag"]}', 
+                        (row['RelativeDistance_m'], row['SignificantPointOrientation_deg']),
+                        textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, color=color)
+        
+        # Set y-axis limits and ticks for 45-degree increments
+        ax.set_ylim(0, 360)
+        ax.set_yticks(np.arange(0, 361, 45))
+        
+        # Set x-axis limits
+        ax.set_xlim(x_min, x_max)
+        
+        # Customize grid
+        ax.grid(which='major', linestyle='-', linewidth='0.5', color='black')
+        ax.grid(which='minor', linestyle=':', linewidth='0.5', color='gray')
+        
+        # Set title for each subplot
+        ax.set_title(f'Anomalies for Year {year}')
+        
+        # Set y-axis label
+        ax.set_ylabel('Orientation (degrees)')
+        
+        # Hide x-axis labels for all but the last subplot
+        if i < num_years - 1:
+            ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+        else:
+            ax.set_xlabel('Relative Distance (m)')
+        
+        # Add legend
+        ax.legend()
     
-    # Plot anomalies for year2
-    ax.scatter(df_year2['RelativeDistance_m'], df_year2['SignificantPointOrientation_deg'], label=f'Year {year2}', c='red', marker='x')
-    
-    # Annotate anomalies for year2
-    for i, row in df_year2.iterrows():
-        ax.annotate(f'T:{row["Tag"]}', 
-                    (row['RelativeDistance_m'], row['SignificantPointOrientation_deg']),
-                    textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, color='red')
-    
-    # Set plot labels and title
-    ax.set_xlabel('Relative Distance (m)')
-    ax.set_ylabel('Orientation (degrees)')
-    ax.set_title(f'Anomalies Comparison for Year {year1} and {year2}')
-    ax.legend()
-    
-    # Set y-axis limits and ticks for 10-degree increments
-    ax.set_ylim(0, 360)
-    ax.set_yticks(np.arange(0, 361, 10))
-    
-    # Add minor y-ticks for 5-degree increments
-    ax.set_yticks(np.arange(0, 361, 5), minor=True)
-    
-    # Set x-axis limits and ticks for 10 cm (0.1 m) increments
-    x_min = np.floor(min(df_year1['RelativeDistance_m'].min(), df_year2['RelativeDistance_m'].min()) * 10) / 10
-    x_max = np.ceil(max(df_year1['RelativeDistance_m'].max(), df_year2['RelativeDistance_m'].max()) * 10) / 10
-    ax.set_xlim(x_min, x_max)
-    ax.set_xticks(np.arange(x_min, x_max + 0.1, 0.1))
-    
-    # Add minor x-ticks for 5 cm increments
-    ax.set_xticks(np.arange(x_min, x_max + 0.05, 0.05), minor=True)
-    
-    # Customize grid
-    ax.grid(which='major', linestyle='-', linewidth='0.5', color='black')
-    ax.grid(which='minor', linestyle=':', linewidth='0.5', color='gray')
-    
-    # Rotate x-axis labels for better readability
-    plt.xticks(rotation=45, ha='right')
+    # Set x-axis ticks and labels for the shared x-axis
+    fig.axes[-1].set_xticks(np.arange(x_min, x_max + 0.1, 0.1))
+    fig.axes[-1].set_xticks(np.arange(x_min, x_max + 0.05, 0.05), minor=True)
+    fig.axes[-1].tick_params(axis='x', which='major', labelrotation=45, labelright=True)
     
     plt.tight_layout()
     plt.show()
     
+def detect_errors(row, length_change_threshold=10, width_change_threshold=50, depth_change_threshold=0.5):
+    """
+    Detects if there are errors in the ILI data based on specified thresholds.
+    
+    Parameters:
+    row (pd.Series): A row of data containing ILI measurements.
+    length_change_threshold (float): Threshold for significant change in feature length (mm).
+    width_change_threshold (float): Threshold for significant change in feature width (mm).
+    depth_change_threshold (float): Threshold for significant change in feature depth (mm).
+    
+    Returns:
+    str: "Error" if the row contains an anomaly that exceeds any of the thresholds, otherwise "Okay".
+    
+    Logic for Thresholds:
+    - length_change_threshold = 10 mm: This value is selected because changes in feature length greater than 10 mm are considered significant and may indicate an error or substantial anomaly in the pipeline.
+    - width_change_threshold = 50 mm: This threshold is set higher because width measurements can have more variability. A change greater than 50 mm could signal a substantial change in the feature's shape or an error.
+    - depth_change_threshold = 0.5 mm: Depth measurements are critical for assessing the severity of anomalies. A change greater than 0.5 mm is significant and could indicate corrosion or another issue requiring attention.
+    """
+    if abs(row['LengthChange']) > length_change_threshold:
+        return "Error"
+    if abs(row['WidthChange']) > width_change_threshold:
+        return "Error"
+    if abs(row['DepthChange']) > depth_change_threshold:
+        return "Error"
+    return "Okay"
+

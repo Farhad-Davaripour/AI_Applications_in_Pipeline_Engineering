@@ -126,9 +126,66 @@ class Anomaly_mapping:
         self.df = self.df.drop(columns=[col for col in self.df.columns if '_dup' in col])
 
         return self.df
+
+    def process_all_girth_welds(self):
+        # Get all unique girth weld numbers
+        girth_weld_numbers = self.df.GirthWeldNumber.unique()
+
+        # Initialize an empty list to store results for all girth weld numbers
+        all_results = []
+
+        # Iterate over all girth weld numbers
+        for gw_num in girth_weld_numbers:
+            print(f"Processing girth weld number: {gw_num}")
+            try:
+                # Process the data for the current girth weld number
+                AnomaliesProc_Mapped_single = self.process_data(girth_weld_number=gw_num)
+                
+                # Check if the result is empty
+                if AnomaliesProc_Mapped_single.empty:
+                    print(f"No data found for girth weld number: {gw_num}")
+                    continue
+                
+                # Print the columns of the result for debugging
+                print(f"Columns in result: {AnomaliesProc_Mapped_single.columns.tolist()}")
+                
+                # Check if required columns are present
+                required_columns = ['InspectionYear', 'RelativeDistance_m', 'GirthWeldNumber']
+                missing_columns = [col for col in required_columns if col not in AnomaliesProc_Mapped_single.columns]
+                
+                if missing_columns:
+                    print(f"Missing columns for girth weld number {gw_num}: {missing_columns}")
+                    continue
+                
+                # Add the results to the list
+                all_results.append(AnomaliesProc_Mapped_single)
+            except Exception as e:
+                print(f"Error processing girth weld number {gw_num}: {str(e)}")
+
+        # Combine all results into a single DataFrame
+        if all_results:
+            AnomaliesProc_Mapped = pd.concat(all_results, ignore_index=True)
+
+            # Sort the final DataFrame
+            AnomaliesProc_Mapped = AnomaliesProc_Mapped.sort_values(['GirthWeldNumber', 'InspectionYear', 'RelativeDistance_m'])
+
+            # Reset the index
+            AnomaliesProc_Mapped = AnomaliesProc_Mapped.reset_index(drop=True)
+
+            # Print the shape of the final DataFrame to verify
+            print(f"Final AnomaliesProc_Mapped shape: {AnomaliesProc_Mapped.shape}")
+            print(f"Columns in final DataFrame: {AnomaliesProc_Mapped.columns.tolist()}")
+
+            return AnomaliesProc_Mapped
+        else:
+            print("No valid results were processed.")
+            return None
     
 
-def plot_anomalies_by_year(anomalies_df, figsize=(15, 6)):
+def plot_anomalies_by_year(anomalies_df, girth_weld_number, figsize=(15, 6)):
+    # Filter anomalies for the given girth weld number
+    anomalies_df = anomalies_df[anomalies_df.GirthWeldNumber == girth_weld_number]
+    
     # Get unique years
     years = sorted(anomalies_df['InspectionYear'].unique())
     num_years = len(years)

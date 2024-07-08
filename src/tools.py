@@ -3,6 +3,13 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import os
+import glob
+from scipy.stats import zscore
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.linear_model import Lasso
+import seaborn as sns
 
 class Anomaly_mapping:
     def __init__(self, df, relative_distance_threshold=0.1, orientation_threshold=10):
@@ -184,6 +191,47 @@ class Anomaly_mapping:
         else:
             print("No valid results were processed.")
             return None   
+        
+    def process_in_increments(self, save_path, increment_size=1000):
+
+        # Find the maximum GirthWeldNumber
+        max_girth_weld_number = self.df['GirthWeldNumber'].max()
+
+        # Loop through the data in increments
+        for start in range(0, max_girth_weld_number + increment_size, increment_size):
+            end = start + increment_size
+            subset_df = self.df[(self.df.GirthWeldNumber >= start) & 
+                                (self.df.GirthWeldNumber < end)]
+            if not subset_df.empty:
+                mapper = Anomaly_mapping(subset_df, self.relative_distance_threshold, self.orientation_threshold)
+                mapped_subset = mapper.process_all_girth_welds()
+                
+                # Save the mapped subset to a file
+                file_name = os.path.join(save_path, f'Anomaly_mapped_df_{start}_{end}.csv')
+                mapped_subset.to_csv(file_name, index=False)
+                
+                # Reset the results list
+                results = []
+
+        # Define the path to the saved CSV files
+        all_files = glob.glob(os.path.join(save_path, "Anomaly_mapped_df_*.csv"))
+
+        # Initialize an empty list to store the dataframes
+        dataframes = []
+
+        # Loop through the list of files and read each one into a dataframe
+        for file in all_files:
+            df = pd.read_csv(file)
+            dataframes.append(df)
+
+        # Concatenate all the dataframes into a single dataframe
+        Anomaly_mapped_df = pd.concat(dataframes, ignore_index=True)
+
+        # Optionally, you can save this to a CSV file
+        Anomaly_mapped_df_file_path = os.path.join(save_path, 'AnomaliesProc_Mapped_All_GirthWelds.csv')
+        Anomaly_mapped_df.to_csv(Anomaly_mapped_df_file_path, index=False)
+
+        return Anomaly_mapped_df
 
 def plot_anomalies_by_year(anomalies_df, girth_weld_number, figsize=(15, 6)):
     # Ensure the 'artifacts' directory exists
@@ -260,31 +308,53 @@ def plot_anomalies_by_year(anomalies_df, girth_weld_number, figsize=(15, 6)):
     plt.savefig(f'artifacts/anomaly_mapping_{girth_weld_number}.png')
     plt.show()
     
-def detect_errors(row, length_change_threshold=10, width_change_threshold=50, depth_change_threshold=0.5):
-    """
-    Detects if there are errors in the ILI data based on specified thresholds.
-    
-    Parameters:
-    row (pd.Series): A row of data containing ILI measurements.
-    length_change_threshold (float): Threshold for significant change in feature length (mm).
-    width_change_threshold (float): Threshold for significant change in feature width (mm).
-    depth_change_threshold (float): Threshold for significant change in feature depth (mm).
-    
-    Returns:
-    str: "Error" if the row contains an anomaly that exceeds any of the thresholds, otherwise "Okay".
-    
-    Logic for Thresholds:
-    - length_change_threshold = 10 mm: This value is selected because changes in feature length greater than 10 mm are considered significant and may indicate an error or substantial anomaly in the pipeline.
-    - width_change_threshold = 50 mm: This threshold is set higher because width measurements can have more variability. A change greater than 50 mm could signal a substantial change in the feature's shape or an error.
-    - depth_change_threshold = 0.5 mm: Depth measurements are critical for assessing the severity of anomalies. A change greater than 0.5 mm is significant and could indicate corrosion or another issue requiring attention.
-    """
-    if abs(row['LengthChange']) > length_change_threshold:
-        return "Error"
-    if abs(row['WidthChange']) > width_change_threshold:
-        return "Error"
-    if abs(row['DepthChange']) > depth_change_threshold:
-        return "Error"
-    return "Okay"
+class ErroneousAnomalyProcessor:
+    def __init__(self, df):
+        self.df = df
+
+    def detect_errors(self, row, length_change_threshold=10, width_change_threshold=50, depth_change_threshold=0.5):
+        """
+        Detects if there are errors in the ILI data based on specified thresholds.
+        
+        Parameters:
+        row (pd.Series): A row of data containing ILI measurements.
+        length_change_threshold (float): Threshold for significant change in feature length (mm).
+        width_change_threshold (float): Threshold for significant change in feature width (mm).
+        depth_change_threshold (float): Threshold for significant change in feature depth (mm).
+        
+        Returns:
+        str: "Error" if the row contains an anomaly that exceeds any of the thresholds, otherwise "Okay".
+        
+        Logic for Thresholds:
+        - length_change_threshold = 10 mm: Changes in feature length greater than 10 mm are significant and may indicate an error or substantial anomaly in the pipeline.
+        - width_change_threshold = 50 mm: A change greater than 50 mm could signal a substantial change in the feature's shape or an error.
+        - depth_change_threshold = 0.5 mm: Depth measurements are critical for assessing the severity of anomalies. A change greater than 0.5 mm is significant and could indicate corrosion or another issue requiring attention.
+        """
+        if abs(row['LengthChange']) > length_change_threshold:
+            return "Error"
+        if abs(row['WidthChange']) > width_change_threshold:
+            return "Error"
+        if abs(row['DepthChange']) > depth_change_threshold:
+            return "Error"
+        return "Okay"
+
+    def print_error_statistics(self):
+        """
+        Prints statistics about the erroneous and correct records.
+        """
+        ErrorClassification_true = self.df[self.df.ErrorClassification == 'Error']
+        ErrorClassification_false = self.df[self.df.ErrorClassification == 'Okay']
+
+        print(f"number of erroneous records: {len(ErrorClassification_true)}")
+        print(f"number of correct records:  {len(ErrorClassification_false)}")
+        print(f"percentage of erroneous records: {len(ErrorClassification_true) / len(self.df) * 100:.2f}%\n")
+
+        old_records = self.df[self.df.Tag == 'old']
+        new_records = self.df[self.df.Tag == 'new']
+
+        print(f"number of old records: {len(old_records)}")
+        print(f"number of new records: {len(new_records)}")
+        print(f"percentage of old records: {len(old_records) / len(self.df) * 100:.2f}%")
 
 def rename_anomaly_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -509,35 +579,168 @@ class FeatureEngineering:
         """
         self.dataframe['FeatureArea_mm2'] = np.pi * (self.dataframe['FeatureLength_mm'] / 2) * (self.dataframe['FeatureWidth_mm'] / 2)
         return self.dataframe
-
-    def calculate_depth(self, area, length, thickness):
+    
+    @staticmethod
+    def _deg_to_rad(deg):
         """
-        Calculate depth using the B31G Modified equation (RSTRENG method)
-        from ASME B31G standard for "Manual for Determining the Remaining Strength of Corroded Pipelines"
+        Convert degrees to radians.
+        """
+        return deg * np.pi / 180
+    
+    def add_angular_features(self, angle_columns=None):
+        """
+        Create sine and cosine features for each angular measurement.
+        """
+        angle_columns = angle_columns
         
-        Equation: d = t * (1 - sqrt(A / (L * t)))
-        Where:
-        d = depth of the corrosion anomaly
-        t = nominal wall thickness of the pipe
-        A = measured area of metal loss
-        L = measured longitudinal extent of the corrosion
-        """
-        if length == 0 or thickness == 0:
-            return 0  # Return 0 if length or thickness is 0 to avoid division by zero
+        for col in angle_columns:
+            # Convert to radians
+            self.dataframe[f'{col}_rad'] = self.dataframe[col].apply(self._deg_to_rad)
+            
+            # Create sine component
+            self.dataframe[f'{col}_sin'] = np.sin(self.dataframe[f'{col}_rad'])
+            
+            # Create cosine component
+            self.dataframe[f'{col}_cos'] = np.cos(self.dataframe[f'{col}_rad'])
         
-        depth = thickness * (1 - np.sqrt(area / (length * thickness)))
-        return max(0, min(depth, thickness))  # Ensure depth is between 0 and wall thickness
-
-    def add_estimated_max_depth(self):
-        """
-        Create the new feature 'estimated_max_depth_mm' using the calculated feature area and depth.
-        """
-        self.dataframe['estimated_max_depth_mm'] = self.dataframe.apply(
-            lambda row: self.calculate_depth(
-                row['FeatureArea_mm2'],
-                row['FeatureLength_mm'],
-                row['WallThickness_mm']
-            ),
-            axis=1
-        )
         return self.dataframe
+    
+def add_dprev_features(df):
+    """
+    Adds second previous inspection year features (DPrev) to the DataFrame.
+
+    Parameters:
+    df (pd.DataFrame): The input DataFrame with anomaly data.
+
+    Returns:
+    pd.DataFrame: The DataFrame with added DPrev features.
+    """
+    DPrev_Old_Filtered_Anomaly_mapped_df = df.copy()
+
+    # Initialize new columns for DPrev values in the copied DataFrame
+    DPrev_Old_Filtered_Anomaly_mapped_df['DPrev_RelativeDistance_m'] = None
+    DPrev_Old_Filtered_Anomaly_mapped_df['DPrev_FeatureLength_mm'] = None
+    DPrev_Old_Filtered_Anomaly_mapped_df['DPrev_FeatureWidth_mm'] = None
+    DPrev_Old_Filtered_Anomaly_mapped_df['DPrev_MaxDepth_mm'] = None
+    DPrev_Old_Filtered_Anomaly_mapped_df['DPrev_SignificantPointOrientation_deg'] = None
+
+    # Iterate through each row to find and assign DPrev values
+    total_rows = len(DPrev_Old_Filtered_Anomaly_mapped_df)
+    for index, row in DPrev_Old_Filtered_Anomaly_mapped_df.iterrows():
+        # Get the current row's Prev values
+        prev_relative_distance = row['Prev_RelativeDistance_m']
+        prev_depth = row['Prev_MaxDepth_mm']
+        prev_feature_length = row['Prev_FeatureLength_mm']
+        prev_feature_width = row['Prev_FeatureWidth_mm']
+        prev_orientation = row['Prev_SignificantPointOrientation_deg']
+        
+        # Find the row with matching RelativeDistance_m, MaxDepth_mm, FeatureLength_mm, FeatureWidth_mm, and SignificantPointOrientation_deg
+        matching_row = DPrev_Old_Filtered_Anomaly_mapped_df[
+            (DPrev_Old_Filtered_Anomaly_mapped_df['RelativeDistance_m'] == prev_relative_distance) & 
+            (DPrev_Old_Filtered_Anomaly_mapped_df['MaxDepth_mm'] == prev_depth) &
+            (DPrev_Old_Filtered_Anomaly_mapped_df['FeatureLength_mm'] == prev_feature_length) &
+            (DPrev_Old_Filtered_Anomaly_mapped_df['FeatureWidth_mm'] == prev_feature_width) &
+            (DPrev_Old_Filtered_Anomaly_mapped_df['SignificantPointOrientation_deg'] == prev_orientation)
+        ]
+        
+        if not matching_row.empty:
+            # Retrieve the corresponding Prev values from the matching row
+            dprev_relative_distance = matching_row['Prev_RelativeDistance_m'].values[0]
+            dprev_feature_length = matching_row['Prev_FeatureLength_mm'].values[0]
+            dprev_feature_width = matching_row['Prev_FeatureWidth_mm'].values[0]
+            dprev_max_depth = matching_row['Prev_MaxDepth_mm'].values[0]
+            dprev_orientation = matching_row['Prev_SignificantPointOrientation_deg'].values[0]
+            
+            # Assign these DPrev values to the original row
+            DPrev_Old_Filtered_Anomaly_mapped_df.at[index, 'DPrev_RelativeDistance_m'] = dprev_relative_distance
+            DPrev_Old_Filtered_Anomaly_mapped_df.at[index, 'DPrev_FeatureLength_mm'] = dprev_feature_length
+            DPrev_Old_Filtered_Anomaly_mapped_df.at[index, 'DPrev_FeatureWidth_mm'] = dprev_feature_width
+            DPrev_Old_Filtered_Anomaly_mapped_df.at[index, 'DPrev_MaxDepth_mm'] = dprev_max_depth
+            DPrev_Old_Filtered_Anomaly_mapped_df.at[index, 'DPrev_SignificantPointOrientation_deg'] = dprev_orientation
+
+        # Print progress
+        if index % 100 == 0 or index == total_rows - 1:
+            print(f"Processed {index + 1} / {total_rows} rows")
+
+    return DPrev_Old_Filtered_Anomaly_mapped_df
+
+class HandlingOutlier:
+    def __init__(self, df):
+        self.df = df
+
+    def remove_outliers_zscore(self, columns, threshold=3):
+        """
+        Removes outliers based on Z-scores for the specified columns.
+
+        Parameters:
+        columns (list): List of column names to calculate Z-scores.
+        threshold (float): Z-score threshold to identify outliers. Default is 3.
+        
+        Returns:
+        pd.DataFrame: DataFrame with outliers removed.
+        """
+        z_scores = np.abs(zscore(self.df[columns], nan_policy='omit'))
+        mask = (z_scores < threshold).all(axis=1)
+        self.df = self.df[mask]
+        return self.df
+
+    def remove_outliers_isolation_forest(self, columns, contamination=0.05):
+        """
+        Removes outliers using Isolation Forest for the specified columns.
+
+        Parameters:
+        columns (list): List of column names to apply Isolation Forest.
+        contamination (float): Proportion of outliers in the data set. Default is 0.05.
+        
+        Returns:
+        pd.DataFrame: DataFrame with outliers removed.
+        """
+        iso_forest = IsolationForest(contamination=contamination)
+        outliers = iso_forest.fit_predict(self.df[columns])
+        self.df = self.df[outliers == 1]
+        return self.df
+    
+
+class FeatureImportance:
+    def __init__(self, features, target):
+        self.features = features
+        self.target = target
+        self.scaler = StandardScaler()
+        self.best_lasso = None
+        self.importance_df = None
+
+    def standardize_features(self):
+        self.features_scaled = self.scaler.fit_transform(self.features)
+        print("Standardization of features is done.")
+
+    def split_data(self, test_size=0.2, random_state=42):
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+            self.features_scaled, self.target, test_size=test_size, random_state=random_state
+        )
+        print("Data splitting into training and testing sets is done.")
+
+    def perform_grid_search(self):
+        alpha_grid = {'alpha': np.linspace(0.001, 1, 100)} 
+        lasso = Lasso()
+        grid_search = GridSearchCV(estimator=lasso, param_grid=alpha_grid, cv=5, scoring='neg_mean_squared_error')
+        grid_search.fit(self.X_train, self.y_train)
+        self.best_alpha = grid_search.best_params_['alpha']
+        print(f"Grid search is done. Best alpha value: {self.best_alpha}")
+
+    def fit_best_lasso(self):
+        self.best_lasso = Lasso(alpha=self.best_alpha)
+        self.best_lasso.fit(self.X_train, self.y_train)
+        print("Fitting the Lasso model with the best alpha is done.")
+
+    def calculate_coefficients(self):
+        coefficients = self.best_lasso.coef_
+        self.importance_df = pd.DataFrame({'Feature': self.features.columns, 'Coefficient': coefficients})
+        self.importance_df.sort_values(by='Coefficient', ascending=False, inplace=True)
+        print("Calculation of feature coefficients is done.")
+
+    def plot_coefficients(self):
+        plt.figure(figsize=(6, 12))
+        sns.barplot(x='Coefficient', y='Feature', data=self.importance_df)
+        plt.title('Feature Importance using Lasso Regression with Best Alpha')
+        plt.show()
+        print("Plotting of coefficients is done.")

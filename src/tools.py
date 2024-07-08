@@ -235,7 +235,7 @@ class Anomaly_mapping:
 
 def plot_anomalies_by_year(anomalies_df, girth_weld_number, figsize=(15, 6)):
     # Ensure the 'artifacts' directory exists
-    os.makedirs('artifacts', exist_ok=True)
+    os.makedirs('../artifacts', exist_ok=True)
     
     # Filter anomalies for the given girth weld number
     anomalies_df = anomalies_df[anomalies_df.GirthWeldNumber == girth_weld_number]

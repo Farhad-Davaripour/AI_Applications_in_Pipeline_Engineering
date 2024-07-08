@@ -1,18 +1,22 @@
+import os
 import streamlit as st
 import pandas as pd
 from src import tools
 from src.tools import plot_anomalies_by_year
 import importlib
-
+import dotenv
 
 # Reload the module to reflect the changes
 importlib.reload(tools)
 
+# Load the environment variables
+dotenv.load_dotenv(override=True)
+save_path = (f'Dataset/processed_data/AnomaliesProc_Mapped_All_GirthWelds_Validated.csv')
 
 # Function to load and cache the DataFrame
 @st.cache_data
 def load_data():
-    return pd.read_csv('Dataset/processed_data/AnomaliesProc_Mapped_All_GirthWelds_Validated.csv')
+    return pd.read_csv(save_path)
 
 # Load the data
 Anomaly_mapped_df = load_data()

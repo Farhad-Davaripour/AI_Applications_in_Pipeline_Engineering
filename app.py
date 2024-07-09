@@ -5,6 +5,8 @@ from src import tools
 from src.tools import plot_anomalies_by_year
 import importlib
 
+st. set_page_config(layout="wide")
+
 # Reload the module to reflect the changes
 importlib.reload(tools)
 

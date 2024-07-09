@@ -10,6 +10,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.linear_model import Lasso
 import seaborn as sns
+from sklearn.preprocessing import KBinsDiscretizer
+from imblearn.under_sampling import RandomUnderSampler
+from skopt import BayesSearchCV
+from skopt.space import Real, Integer
+from sklearn.experimental import enable_hist_gradient_boosting
+from sklearn.ensemble import HistGradientBoostingRegressor
+from skopt.callbacks import DeltaYStopper
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 class Anomaly_mapping:
     def __init__(self, df, relative_distance_threshold=0.1, orientation_threshold=10):
@@ -744,3 +752,154 @@ class FeatureImportance:
         plt.title('Feature Importance using Lasso Regression with Best Alpha')
         plt.show()
         print("Plotting of coefficients is done.")
+
+class TrainingPipeline:
+
+    def __init__(self, features, target):
+        self.features = features
+        self.target = target
+        self.scaler = StandardScaler()
+        self.features_scaled = None
+        self.features_resampled = None
+        self.target_resampled = None
+        self.X_train = None
+        self.X_test = None
+        self.y_train = None
+        self.y_test = None
+        self.best_model = None
+
+    def scale_features(self):
+        self.features = self.features.loc[self.target.index]
+        self.features_scaled = self.scaler.fit_transform(self.features)
+        return self.features_scaled
+
+    def handle_class_imbalance(self):
+        original_discretized_values = np.unique(self.target)
+        n_bins = len(original_discretized_values)
+        kbins = KBinsDiscretizer(n_bins=n_bins, encode='ordinal', strategy='uniform')
+        target_binned = kbins.fit_transform(self.target.values.reshape(-1, 1)).reshape(-1).astype(int)
+        bin_counts = np.bincount(target_binned)
+        median_freq = np.median(bin_counts)
+        sampling_strategy = {i: min(count, int(median_freq)) for i, count in enumerate(bin_counts) if count > 0}
+        rus = RandomUnderSampler(sampling_strategy=sampling_strategy, random_state=42)
+        self.features_resampled, target_resampled_binned = rus.fit_resample(self.features, target_binned)
+        self.target_resampled = original_discretized_values[target_resampled_binned]
+        return self.features_resampled, self.target_resampled
+
+    def split_data(self, test_size=0.2, random_state=42, handle_imbalance=False):
+        if handle_imbalance:
+            self.handle_class_imbalance()
+            X = self.features_resampled
+            y = self.target_resampled
+        else:
+            X = self.features_scaled
+            y = self.target
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+            X, y, test_size=test_size, random_state=random_state)
+        return self.X_train, self.X_test, self.y_train, self.y_test
+
+    def hyperparameter_tuning(self, search_spaces=None, n_iter=50, cv=5, scoring='neg_mean_squared_error'):
+        if search_spaces is None:
+            search_spaces = {
+                'learning_rate': Real(0.01, 0.5, prior='log-uniform'),
+                'max_iter': Integer(100, 500),
+                'max_depth': Integer(3, 10),
+                'min_samples_leaf': Integer(5, 50),
+                'l2_regularization': Real(1e-6, 1e-2, prior='log-uniform')
+            }
+        base_model = HistGradientBoostingRegressor(random_state=42)
+        delta_y_stopper = DeltaYStopper(delta=0.001)
+        bayes_search = BayesSearchCV(
+            base_model,
+            search_spaces,
+            n_iter=n_iter,
+            cv=cv,
+            n_jobs=-1,
+            random_state=42,
+            scoring=scoring)
+        bayes_search.fit(self.X_train, self.y_train, callback=[delta_y_stopper])
+        best_params = bayes_search.best_params_
+        self.best_model = HistGradientBoostingRegressor(random_state=42, **best_params)
+        return best_params
+
+    def fit_model(self, use_best_params=True):
+        if self.best_model is None or not use_best_params:
+            self.best_model = HistGradientBoostingRegressor(
+                l2_regularization=4.3693399475103194e-05,
+                learning_rate=0.17233925413725915,
+                max_depth=10,
+                max_iter=226,
+                min_samples_leaf=35,
+                random_state=42
+            )
+        self.best_model.fit(self.X_train, self.y_train)
+        return self.best_model
+
+    def evaluate_model(self):
+        y_pred = self.best_model.predict(self.X_test)
+        y_true = self.y_test
+        mse = mean_squared_error(y_true, y_pred)
+        rmse = np.sqrt(mse)
+        mae = mean_absolute_error(y_true, y_pred)
+        r2 = r2_score(y_true, y_pred)
+        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+        me = np.mean(y_true - y_pred)
+        return {
+            'RMSE': rmse,
+            'MAE': mae,
+            'R2': r2,
+            'MAPE': mape,
+            'ME': me
+        }
+    
+    def plot_prediction_accuracy(self):
+        y_pred = self.best_model.predict(self.X_test)
+        results = pd.DataFrame({'Actual': self.y_test, 'Predicted': y_pred})
+
+        tolerances = np.arange(0.01, 0.51, 0.01)
+        accuracies = []
+        for tolerance in tolerances:
+            accuracy = np.mean(np.abs((self.y_test - y_pred) / self.y_test) < tolerance) * 100
+            accuracies.append(accuracy)
+
+        plt.figure(figsize=(6, 4))
+        plt.plot(tolerances * 100, accuracies, marker='o')
+        plt.xlabel('Tolerance (%)')
+        plt.ylabel('Prediction Accuracy (%)')
+        plt.title('Prediction Accuracy for Different Tolerance Ranges')
+        plt.grid(True)
+        plt.show()
+
+        return results
+
+    def plot_violin(self, results):
+        plt.figure(figsize=(15, 6))
+        sns.violinplot(x='Actual', y='Predicted', data=results)
+
+        plt.xlabel('Max Depth (mm)')
+        plt.ylabel('Predicted Max Depth (mm)')
+        plt.title('Actual vs Predicted Values')
+        plt.show()
+
+    def plot_scatter(self, results):
+        sns.scatterplot(x='Actual', y='Predicted', data=results, color='blue', alpha=0.5)
+
+        min_val = min(results['Actual'].min(), results['Predicted'].min())
+        max_val = max(results['Actual'].max(), results['Predicted'].max())
+        plt.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--')
+
+        plt.xlabel('Max Depth (mm)')
+        plt.ylabel('Predicted Max Depth (mm)')
+        plt.title('Actual vs Predicted Values')
+        plt.show()
+
+    def fill_missing_values(self, dataframe, feature_columns, target_column):
+        missing_index = dataframe[target_column].isnull()
+        dataframe.loc[missing_index, f'{target_column}_predicted'] = self.best_model.predict(self.scaler.transform(dataframe.loc[missing_index, feature_columns]))
+
+        missing_values_remaining = dataframe[target_column].isnull().sum()
+        print(f"Number of remaining missing values in '{target_column}': {missing_values_remaining}")
+
+        predicted_records = dataframe[dataframe[target_column].isnull()]
+        return predicted_records
+

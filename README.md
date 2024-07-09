@@ -1,4 +1,4 @@
-# AI_Applications_in_Pipeline_Engineering
+# AI Applications in Pipeline Engineering
 
 Pipeline integrity management is crucial in ensuring the safety and reliability of gas and oil transportation. In-line inspection (ILI) tools are extensively used to detect and measure anomalies in pipelines. Accurately predicting the maximum depth of these anomalies is essential for proactive maintenance and risk mitigation. This repository demonstrates a comprehensive workflow, from data loading and cleaning to advanced machine learning modeling, aimed at predicting anomaly depths effectively. Key steps in the process include:
 
@@ -9,7 +9,11 @@ This involves exploratory data analysis (EDA) to understand the data distributio
 We compute new features such as aspect ratio and area of anomalies, estimate the maximum depth using domain-specific calculations, and create cyclic features from angular measurements.
 
 ### Anomaly Mapping
-We match anomalies across different inspection years to track their growth and changes over time. This involves sophisticated matching algorithms to identify corresponding anomalies based on relative distances and orientations.
+[![Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ai-applications-in-pipeline-engineering.streamlit.app/)
+
+We match anomalies across different inspection years to track their growth and changes over time. This involves sophisticated matching algorithms to identify corresponding anomalies based on relative distances and orientations. Use the link below to visualize the mapped anomalies through different inspection years:
+
+
 
 ### Modeling
 We employ machine learning models, particularly the Hist Gradient Boosting Regressor, to predict the maximum depth of anomalies. This includes data preparation, model training, hyperparameter tuning, and evaluation.

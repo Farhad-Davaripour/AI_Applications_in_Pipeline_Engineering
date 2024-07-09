@@ -8,7 +8,7 @@ import importlib
 # Reload the module to reflect the changes
 importlib.reload(tools)
 
-save_path = (f'Dataset/processed_data/AnomaliesProc_Mapped_All_GirthWelds_Validated.csv')
+save_path = (f'Dataset/processed_data/Plot_Mapped_Anomalies.csv')
 
 # Function to load and cache the DataFrame
 @st.cache_data

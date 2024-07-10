@@ -1,7 +1,7 @@
 # AI Applications in Pipeline Engineering
 
 ### Summary
-This repository provides a simplified method to map anomalies across inspection years. Check out the app below to visualize mapped anomalies:
+This repository provides a simplified method to map (external corrosion) anomalies across inspection years. Check out the app below to visualize mapped anomalies:
 
 [![Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ai-applications-in-pipeline-engineering.streamlit.app/)
 

@@ -18,6 +18,8 @@ from sklearn.experimental import enable_hist_gradient_boosting
 from sklearn.ensemble import HistGradientBoostingRegressor
 from skopt.callbacks import DeltaYStopper
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 
 class Anomaly_mapping:
     def __init__(self, df, relative_distance_threshold=0.1, orientation_threshold=10):
@@ -903,3 +905,43 @@ class TrainingPipeline:
         predicted_records = dataframe[dataframe[target_column].isnull()]
         return predicted_records
 
+class AnomalyClusterer:
+    def __init__(self, dataframe, clustering_features, n_clusters=5, random_state=42):
+        self.dataframe = dataframe
+        self.clustering_features = clustering_features
+        self.n_clusters = n_clusters
+        self.random_state = random_state
+        self.kmeans = None
+        self.principal_components = None
+
+    def perform_clustering(self):
+        # Select the features for clustering
+        features_kmeans = self.dataframe[self.clustering_features]
+        
+        # Fit a KMeans model
+        self.kmeans = KMeans(n_clusters=self.n_clusters, random_state=self.random_state)
+        self.kmeans.fit(features_kmeans)
+        
+        # Assign cluster labels to the data
+        self.dataframe['anomaly_type'] = self.kmeans.labels_
+
+        return self.dataframe
+
+    def visualize_clusters(self):
+        # Select the features for clustering
+        features_kmeans = self.dataframe[self.clustering_features]
+
+        # Perform PCA to reduce dimensionality to 2D for visualization
+        pca = PCA(n_components=2)
+        self.principal_components = pca.fit_transform(features_kmeans)
+        self.dataframe['PC1'] = self.principal_components[:, 0]
+        self.dataframe['PC2'] = self.principal_components[:, 1]
+
+        # Plot the clusters
+        plt.figure(figsize=(10, 8))
+        scatter = plt.scatter(self.dataframe['PC1'], self.dataframe['PC2'], c=self.dataframe['anomaly_type'], cmap='viridis')
+        plt.xlabel('Principal Component 1')
+        plt.ylabel('Principal Component 2')
+        plt.title('PCA of Anomaly Clusters')
+        plt.legend(*scatter.legend_elements(), title="Clusters")
+        plt.show()

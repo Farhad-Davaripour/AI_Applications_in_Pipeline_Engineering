@@ -222,7 +222,8 @@ class Anomaly_mapping:
                 
                 # Reset the results list
                 results = []
-
+    
+    def concat_mapped_dfs(self, save_path):
         # Define the path to the saved CSV files
         all_files = glob.glob(os.path.join(save_path, "Anomaly_mapped_df_*.csv"))
 
@@ -238,7 +239,7 @@ class Anomaly_mapping:
         Anomaly_mapped_df = pd.concat(dataframes, ignore_index=True)
 
         # Optionally, you can save this to a CSV file
-        Anomaly_mapped_df_file_path = os.path.join(save_path, 'AnomaliesProc_Mapped_All_GirthWelds.csv')
+        Anomaly_mapped_df_file_path = os.path.join(save_path, 'Anomalies_Mapped_All_GirthWelds.csv')
         Anomaly_mapped_df.to_csv(Anomaly_mapped_df_file_path, index=False)
 
         return Anomaly_mapped_df
@@ -493,15 +494,25 @@ class MissingValuesAnalyzer:
         })
         inconsistent_joints = inconsistent_joints[inconsistent_joints['SeamOrientation_deg']].index
 
+        # Variable to store the last inconsistent joint's data
+        last_inconsistent_joint_data = None
+
         # Check inconsistent joints
         for joint in inconsistent_joints:
-            print(f"\nGirthWeldNumber {joint}:")
             joint_data = self.dataframe[self.dataframe['GirthWeldNumber'] == joint]
+            joint_details = f"\nGirthWeldNumber {joint}:\n"
             for year in joint_data['InspectionYear'].unique():
                 year_data = joint_data[joint_data['InspectionYear'] == year]
-                print(f"  InspectionYear {year}:")
-                print(year_data['SeamOrientation_deg'].value_counts().to_string())
-            print("================================================")
+                joint_details += f"  InspectionYear {year}:\n"
+                joint_details += year_data['SeamOrientation_deg'].value_counts().to_string() + "\n"
+            joint_details += "================================================\n"
+            
+            # Store the details of the current joint
+            last_inconsistent_joint_data = joint_details
+
+        # Print the last inconsistent joint's details
+        if last_inconsistent_joint_data:
+            print(last_inconsistent_joint_data)
 
     def handle_inconsistent_seam_orientation(self):
         # Identify the joints where the SeamOrientation_deg is not consistent across the inspection years
@@ -514,6 +525,9 @@ class MissingValuesAnalyzer:
         def most_frequent_non_null(series):
             return series.dropna().mode().iloc[0] if not series.dropna().empty else np.nan
 
+        # Variable to store the last inconsistent joint's data
+        last_inconsistent_joint_data = None
+
         # For each inconsistent joint, apply the most_frequent_non_null function to get the most frequent value
         for joint in inconsistent_joints:
             most_frequent = self.dataframe[self.dataframe['GirthWeldNumber'] == joint]['SeamOrientation_deg'].pipe(most_frequent_non_null)
@@ -521,15 +535,22 @@ class MissingValuesAnalyzer:
             # Replace all values for this joint with the most frequent value
             self.dataframe.loc[self.dataframe['GirthWeldNumber'] == joint, 'SeamOrientation_deg'] = most_frequent
 
-        # Verify the changes
+        # Verify the changes and store the last inconsistent joint's data
         for joint in inconsistent_joints:
-            print(f"\nGirthWeldNumber {joint}:")
             joint_data = self.dataframe[self.dataframe['GirthWeldNumber'] == joint]
+            joint_details = f"\nGirthWeldNumber {joint}:\n"
             for year in joint_data['InspectionYear'].unique():
                 year_data = joint_data[joint_data['InspectionYear'] == year]
-                print(f"  InspectionYear {year}:")
-                print(year_data['SeamOrientation_deg'].value_counts().to_string())
-            print("================================================")
+                joint_details += f"  InspectionYear {year}:\n"
+                joint_details += year_data['SeamOrientation_deg'].value_counts().to_string() + "\n"
+            joint_details += "================================================\n"
+            
+            # Store the details of the current joint
+            last_inconsistent_joint_data = joint_details
+
+        # Print the last inconsistent joint's details
+        if last_inconsistent_joint_data:
+            print(last_inconsistent_joint_data)
             
     def find_and_report_inconsistent_joints(self):
         # Find inconsistent joints
@@ -827,11 +848,11 @@ class TrainingPipeline:
     def fit_model(self, use_best_params=True):
         if self.best_model is None or not use_best_params:
             self.best_model = HistGradientBoostingRegressor(
-                l2_regularization=4.3693399475103194e-05,
-                learning_rate=0.17233925413725915,
-                max_depth=10,
-                max_iter=226,
-                min_samples_leaf=35,
+                l2_regularization=2.148188547134838e-06,
+                learning_rate=0.01,
+                max_depth=3,
+                max_iter=386,
+                min_samples_leaf=5,
                 random_state=42
             )
         self.best_model.fit(self.X_train, self.y_train)
@@ -867,15 +888,15 @@ class TrainingPipeline:
         plt.figure(figsize=(6, 4))
         plt.plot(tolerances * 100, accuracies, marker='o')
         plt.xlabel('Tolerance (%)')
-        plt.ylabel('Prediction Accuracy (%)')
+        plt.ylabel('Percentage of Predictions Within Tolerance (%)')
         plt.title('Prediction Accuracy for Different Tolerance Ranges')
         plt.grid(True)
         plt.show()
 
         return results
 
-    def plot_violin(self, results):
-        plt.figure(figsize=(15, 6))
+    def plot_violin(self, results, figsize=(15, 6)):
+        plt.figure(figsize=figsize)
         sns.violinplot(x='Actual', y='Predicted', data=results)
 
         plt.xlabel('Max Depth (mm)')

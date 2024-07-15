@@ -20,6 +20,7 @@ from skopt.callbacks import DeltaYStopper
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.base import BaseEstimator
 
 class Anomaly_mapping:
     def __init__(self, df, relative_distance_threshold=0.1, orientation_threshold=10):
@@ -858,15 +859,28 @@ class TrainingPipeline:
         self.best_model.fit(self.X_train, self.y_train)
         return self.best_model
 
-    def evaluate_model(self):
-        y_pred = self.best_model.predict(self.X_test)
-        y_true = self.y_test
-        mse = mean_squared_error(y_true, y_pred)
+    def evaluate_model(self, min_value=None, max_value=None):
+        # Filter y_test based on the min_value and max_value if provided
+        mask = np.ones(len(self.y_test), dtype=bool)  # Initialize mask with all True
+        if min_value is not None:
+            mask = mask & (self.y_test >= min_value)
+        if max_value is not None:
+            mask = mask & (self.y_test <= max_value)
+        
+        y_test_filtered = self.y_test[mask]
+        X_test_filtered = self.X_test[mask]
+
+        # Predict using the filtered X_test
+        y_pred = self.best_model.predict(X_test_filtered)
+
+        # Evaluate performance metrics on the filtered data
+        mse = mean_squared_error(y_test_filtered, y_pred)
         rmse = np.sqrt(mse)
-        mae = mean_absolute_error(y_true, y_pred)
-        r2 = r2_score(y_true, y_pred)
-        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-        me = np.mean(y_true - y_pred)
+        mae = mean_absolute_error(y_test_filtered, y_pred)
+        r2 = r2_score(y_test_filtered, y_pred)
+        mape = np.mean(np.abs((y_test_filtered - y_pred) / y_test_filtered)) * 100
+        me = np.mean(y_test_filtered - y_pred)
+        
         return {
             'RMSE': rmse,
             'MAE': mae,
@@ -966,3 +980,131 @@ class AnomalyClusterer:
         plt.title('PCA of Anomaly Clusters')
         plt.legend(*scatter.legend_elements(), title="Clusters")
         plt.show()
+
+class AnomalyPredictionPipeline:
+    def __init__(self, df, model: BaseEstimator, prev_inspection_year: int, next_inspection_year: int):
+        self.df = df
+        self.model = model
+        self.prev_inspection_year = prev_inspection_year
+        self.next_inspection_year = next_inspection_year
+
+    def prepare_data(self, wt_mm: pd.Series, feature_columns: list, target_column: str):
+        # Filtering data for the previous inspection year
+        self.df = self.df[self.df['InspectionYear'] == self.prev_inspection_year].copy()
+        self.df[target_column] = self.df[self.df['InspectionYear'] == self.prev_inspection_year][target_column]
+
+        # Assigning the new inspection year and the previous inspection year
+        self.df['InspectionYear'] = self.next_inspection_year
+        self.df['Prev_InspectionYear'] = self.prev_inspection_year
+        self.df['WallThickness_mm'] = wt_mm
+
+        # Creating new columns with the previous values
+        for col in ['RelativeDistance_m', 'FeatureLength_mm', 'FeatureWidth_mm', 'MaxDepth_mm', 'SignificantPointOrientation_deg']:
+            self.df[f'Prev_{col}'] = self.df[col]
+
+        # Delta values for the previous inspection year
+        for col in ['RelativeDistance_m', 'FeatureLength_mm', 'FeatureWidth_mm', 'MaxDepth_mm', 'SignificantPointOrientation_deg']:
+            self.df[f'DPrev_{col}'] = self.df[f'Prev_{col}']
+
+        # Derived feature calculations
+        self.df['Estimated_FeatureLength_mm'] = (
+            2 * self.df['FeatureLength_mm'] - self.df['Prev_FeatureLength_mm']
+        )
+        self.df['Estimated_FeatureWidth_mm'] = (
+            2 * self.df['FeatureWidth_mm'] - self.df['Prev_FeatureWidth_mm']
+        )
+        self.df['Powered_Prev_MaxDepth_mm'] = (
+            self.df['MaxDepth_mm'] ** 2
+        )
+
+        # Adding a sanity check to ensure all columns are present
+        required_columns = feature_columns + [target_column] + ['WallThickness_mm']
+        missing_columns = [col for col in required_columns if col not in self.df.columns]
+
+        if missing_columns:
+            print(f"Warning: The following required columns are missing: {missing_columns}")
+
+        # Ensure the final DataFrame has all the required columns
+        self.df = self.df[required_columns]
+        
+        print("Data preparation is done.")
+        return self.df
+
+    def make_predictions(self, feature_columns: list):
+        # Make predictions
+        self.df['Prediction_MaxDepth_mm'] = self.model.predict(self.df[feature_columns])
+        
+        # Ensure predicted max depth is not smaller than actual max depth
+        self.df['Prediction_MaxDepth_mm'] = self.df.apply(
+            lambda row: max(row['Prediction_MaxDepth_mm'], row['MaxDepth_mm']),
+            axis=1
+        )
+
+        print("Predictions are done.")
+        return self.df
+
+
+    def perform_analytics(self, figsize=(10, 6)):
+        # Calculate the total and count of predicted max depths, mean, and standard deviation for each GirthWeldNumber
+        grouped_df = self.df.groupby('GirthWeldNumber').agg(
+            total_pred_max_depth=('Prediction_MaxDepth_mm', 'sum'),
+            mean_pred_max_depth=('Prediction_MaxDepth_mm', 'mean'),
+            std_pred_max_depth=('Prediction_MaxDepth_mm', 'std'),
+            total_max_depth=('MaxDepth_mm', 'sum'),
+            mean_max_depth=('MaxDepth_mm', 'mean'),
+            count=('Prediction_MaxDepth_mm', 'size'),
+            wall_thickness=('WallThickness_mm', 'mean')  # Added wall thickness
+        )
+
+        # Handle cases where std_pred_max_depth might be NaN (e.g., if count is 1)
+        grouped_df['std_pred_max_depth'].fillna(0, inplace=True)
+
+        # Calculate the weighted density (average predicted depth)
+        grouped_df['weighted_density_division'] = grouped_df['total_pred_max_depth'] / grouped_df['count']
+
+        # Calculate the total impact (criticality)
+        grouped_df['criticality_multiplication'] = grouped_df['total_pred_max_depth'] * grouped_df['count']
+
+        # Normalize the criticality_multiplication values
+        min_criticality = grouped_df['criticality_multiplication'].min()
+        max_criticality = grouped_df['criticality_multiplication'].max()
+        grouped_df['normalized_criticality_multiplication'] = (
+            (grouped_df['criticality_multiplication'] - min_criticality) / (max_criticality - min_criticality)
+        )
+
+        # Sort by weighted density from maximum to minimum
+        sorted_by_density_division = grouped_df.sort_values(by='weighted_density_division', ascending=False).head(10)
+
+        # Sort by normalized criticality from maximum to minimum
+        sorted_by_criticality_multiplication = grouped_df.sort_values(by='normalized_criticality_multiplication', ascending=False).head(10)
+
+        # Print top 10 anomalies with the most depth including predicted max depth
+        top10_anomalies = self.df.sort_values(by='Prediction_MaxDepth_mm', ascending=False).head(10)
+        print("\nTop 10 Anomalies with Most Predicted Depth:")
+        print(top10_anomalies[['GirthWeldNumber', 'MaxDepth_mm', 'Prediction_MaxDepth_mm', 'WallThickness_mm']])
+
+        # Print top 10 joints with the highest sum of predicted anomaly depth
+        top10_joints_by_sum_pred_depth = grouped_df.sort_values(by='total_pred_max_depth', ascending=False).head(10)
+        print("\nTop 10 Joints with Highest Sum of Predicted Anomaly Depth:")
+        print(top10_joints_by_sum_pred_depth[['total_max_depth', 'total_pred_max_depth', 'mean_max_depth', 'count', 'mean_pred_max_depth', 'wall_thickness']])
+
+        # Plot top 10 GirthWeldNumbers by weighted density (division)
+        plt.figure(figsize=figsize)
+        plt.bar(sorted_by_density_division.index.astype(str), sorted_by_density_division['weighted_density_division'])
+        plt.xlabel('Joint Number')
+        plt.ylabel('Average Predicted Depth')
+        plt.title('Top 10 Joints by Average Predicted Anomaly Depth')
+        plt.xticks(rotation=45)
+        plt.show()
+
+        # Plot top 10 GirthWeldNumbers by normalized criticality (multiplication)
+        plt.figure(figsize=figsize)
+        plt.bar(sorted_by_criticality_multiplication.index.astype(str), sorted_by_criticality_multiplication['normalized_criticality_multiplication'])
+        plt.xlabel('Joint Number')
+        plt.ylabel('Normalized Total Predicted Impact')
+        plt.title('Top 10 Joints by Normalized Total Predicted Anomaly Impact')
+        plt.xticks(rotation=45)
+        plt.show()
+
+        print("Analytics are done.")
+

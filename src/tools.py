@@ -596,7 +596,6 @@ class MissingValuesAnalyzer:
         self.dataframe['SeamOrientation_deg'] = self.dataframe['SeamOrientation_deg'].ffill()
         return self.dataframe
 
-
 class FeatureEngineering:
     def __init__(self, dataframe):
         self.dataframe = dataframe
@@ -893,11 +892,11 @@ class TrainingPipeline:
         me = np.mean(y_test_filtered - y_pred)
         
         return {
-            'RMSE': rmse,
-            'MAE': mae,
-            'R2': r2,
-            'MAPE': mape,
-            'ME': me
+            'RMSE': round(rmse,4),
+            'MAE': round(mae, 4),
+            'R2': round(r2, 4),
+            'MAPE': round(mape, 4),
+            'ME': round(me, 4)
         }
     
     def plot_prediction_accuracy(self):

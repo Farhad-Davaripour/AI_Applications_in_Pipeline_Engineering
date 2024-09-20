@@ -17,3 +17,4 @@ statsmodels==0.14.2
 streamlit==1.36.0
 python-dotenv==1.0.1
 imblearn
+openai==1.46.1

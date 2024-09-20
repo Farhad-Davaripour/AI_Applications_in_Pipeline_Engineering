@@ -513,7 +513,7 @@ class MissingValuesAnalyzer:
 
         # Print the last inconsistent joint's details
         if last_inconsistent_joint_data:
-            print(last_inconsistent_joint_data)
+            print(f"The last inconsistent joint's details:\n {last_inconsistent_joint_data}")
 
     def handle_inconsistent_seam_orientation(self):
         # Identify the joints where the SeamOrientation_deg is not consistent across the inspection years
@@ -578,9 +578,13 @@ class MissingValuesAnalyzer:
                 print("================================================")
 
     def fill_missing_seam_orientation_w_average(self):
-        # Fill missing values in 'SeamOrientation_deg' with the mean value of the group 'GirthWeldNumber'
+        # Filling missing values in 'SeamOrientation_deg' with the mean value of the group 'GirthWeldNumber'
+        original_missing = self.dataframe['SeamOrientation_deg'].isna().sum()
         self.dataframe['SeamOrientation_deg'] = self.dataframe.groupby('GirthWeldNumber')['SeamOrientation_deg'].transform(lambda x: x.fillna(x.mean()))
-        return self.dataframe
+        filled = original_missing - self.dataframe['SeamOrientation_deg'].isna().sum()
+        
+        # Return the number of values that were filled with the group's mean
+        return filled
 
     def fill_missing_seam_orientation_w_ffill(self):
         # Fill missing values in 'SeamOrientation_deg' by forward filling within each GirthWeldNumber group
@@ -732,7 +736,6 @@ class HandlingOutlier:
         self.df = self.df[outliers == 1]
         return self.df
     
-
 class FeatureImportance:
     def __init__(self, features, target):
         self.features = features
@@ -776,6 +779,14 @@ class FeatureImportance:
         plt.title('Feature Importance using Lasso Regression with Best Alpha')
         plt.show()
         print("Plotting of coefficients is done.")
+
+    def plot_non_zero_coefficients(self):
+        non_zero_importance = self.importance_df[self.importance_df['Coefficient'] != 0]
+        plt.figure(figsize=(6, 12))
+        sns.barplot(x='Coefficient', y='Feature', data=non_zero_importance)
+        plt.title('Non-zero Feature Importance using Lasso Regression with Best Alpha')
+        plt.show()
+        print("Plotting of non-zero coefficients is done.")
 
 class TrainingPipeline:
 
@@ -942,43 +953,74 @@ class TrainingPipeline:
 
 class AnomalyClusterer:
     def __init__(self, dataframe, clustering_features, n_clusters=5, random_state=42):
-        self.dataframe = dataframe
+        self.dataframe = dataframe.copy()  # Make a copy to avoid modifying the original DataFrame
         self.clustering_features = clustering_features
         self.n_clusters = n_clusters
         self.random_state = random_state
         self.kmeans = None
+        self.scaler = StandardScaler()  # Initialize the scaler here
+        self.features_normalized = None
         self.principal_components = None
+        self.pca = None
 
     def perform_clustering(self):
         # Select the features for clustering
         features_kmeans = self.dataframe[self.clustering_features]
-        
+
+        # Normalize the data
+        self.features_normalized = self.scaler.fit_transform(features_kmeans)
+
         # Fit a KMeans model
         self.kmeans = KMeans(n_clusters=self.n_clusters, random_state=self.random_state)
-        self.kmeans.fit(features_kmeans)
-        
+        self.kmeans.fit(self.features_normalized)
+
         # Assign cluster labels to the data
         self.dataframe['anomaly_type'] = self.kmeans.labels_
+
+        # Perform PCA to reduce dimensionality to 2D for visualization
+        self.pca = PCA(n_components=7)
+        self.principal_components = self.pca.fit_transform(self.features_normalized)
+
+        # Add principal components to the original dataframe
+        self.dataframe['PC1'] = self.principal_components[:, 0]
+        self.dataframe['PC2'] = self.principal_components[:, 1]
 
         return self.dataframe
 
     def visualize_clusters(self):
-        # Select the features for clustering
-        features_kmeans = self.dataframe[self.clustering_features]
-
-        # Perform PCA to reduce dimensionality to 2D for visualization
-        pca = PCA(n_components=2)
-        self.principal_components = pca.fit_transform(features_kmeans)
-        self.dataframe['PC1'] = self.principal_components[:, 0]
-        self.dataframe['PC2'] = self.principal_components[:, 1]
+        # Ensure that perform_clustering has been called
+        if self.principal_components is None:
+            raise ValueError("You need to call perform_clustering() before visualize_clusters().")
 
         # Plot the clusters
         plt.figure(figsize=(10, 8))
-        scatter = plt.scatter(self.dataframe['PC1'], self.dataframe['PC2'], c=self.dataframe['anomaly_type'], cmap='viridis')
+        scatter = plt.scatter(self.dataframe['PC1'], self.dataframe['PC2'],
+                              c=self.dataframe['anomaly_type'], cmap='viridis')
         plt.xlabel('Principal Component 1')
         plt.ylabel('Principal Component 2')
         plt.title('PCA of Anomaly Clusters')
         plt.legend(*scatter.legend_elements(), title="Clusters")
+        plt.show()
+
+    def plot_pca_explained_variance(self):
+        if self.pca is None:
+            raise ValueError("You need to call perform_clustering() before plotting PCA explained variance.")
+
+        # Get the explained variance ratios and compute cumulative variance
+        explained_variance_ratio = self.pca.explained_variance_ratio_
+        cumulative_variance = np.cumsum(explained_variance_ratio)
+        components = np.arange(1, len(explained_variance_ratio) + 1)
+
+        # Create the plot
+        plt.figure(figsize=(10, 6))
+        plt.bar(components, explained_variance_ratio, alpha=0.7, label='Individual Explained Variance')
+        plt.step(components, cumulative_variance, where='mid', color='red', label='Cumulative Explained Variance')
+        plt.xlabel('Principal Component')
+        plt.ylabel('Explained Variance Ratio')
+        plt.title('PCA Explained Variance Ratio by Component')
+        plt.xticks(components)
+        plt.legend(loc='best')
+        plt.grid(True)
         plt.show()
 
 class AnomalyPredictionPipeline:

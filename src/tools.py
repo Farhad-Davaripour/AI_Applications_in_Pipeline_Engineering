@@ -535,6 +535,7 @@ class MissingValuesAnalyzer:
             
             # Replace all values for this joint with the most frequent value
             self.dataframe.loc[self.dataframe['GirthWeldNumber'] == joint, 'SeamOrientation_deg'] = most_frequent
+        return self.dataframe
 
         # Verify the changes and store the last inconsistent joint's data
         for joint in inconsistent_joints:
@@ -584,7 +585,7 @@ class MissingValuesAnalyzer:
         filled = original_missing - self.dataframe['SeamOrientation_deg'].isna().sum()
         
         # Return the number of values that were filled with the group's mean
-        return filled
+        return self.dataframe, filled
 
     def fill_missing_seam_orientation_w_ffill(self):
         # Fill missing values in 'SeamOrientation_deg' by forward filling within each GirthWeldNumber group
@@ -694,7 +695,7 @@ def add_dprev_features(df):
             DPrev_Old_Filtered_Anomaly_mapped_df.at[index, 'DPrev_SignificantPointOrientation_deg'] = dprev_orientation
 
         # Print progress
-        if index % 100 == 0 or index == total_rows - 1:
+        if index % 1000 == 0 or index == total_rows - 1:
             print(f"Processed {index + 1} / {total_rows} rows")
 
     return DPrev_Old_Filtered_Anomaly_mapped_df

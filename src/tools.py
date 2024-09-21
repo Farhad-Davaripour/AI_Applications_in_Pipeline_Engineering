@@ -317,7 +317,11 @@ def plot_anomalies_by_year(anomalies_df, girth_weld_number, figsize=(15, 6)):
     fig.axes[-1].tick_params(axis='x', which='major', labelrotation=45, labelright=True)
     
     plt.tight_layout(pad=2.0)
-    plt.savefig(f'artifacts/anomaly_mapping_{girth_weld_number}.png')
+
+    # Check if the directory 'artifacts' exists
+    if os.path.exists('artifacts'):
+        plt.savefig(f'artifacts/anomaly_mapping_{girth_weld_number}.png')
+
     plt.show()
     
 class ErroneousAnomalyProcessor:

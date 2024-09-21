@@ -11,6 +11,13 @@ The main objective is to provide an end-to-end workflow for implementing differe
 - **Fill missing values**: Predict the missing max depth of anomalies by training a Regressor model against historical data.
 - **Forecast the future max depth of existing anomalies**: Use a modified regressor to predict future anomaly depth.
 
+The following demo provides the source code to execute the steps outlined above:
+
+<a href="https://colab.research.google.com/github/Farhad-Davaripour/AI_Applications_in_Pipeline_Engineering/blob/main/demo.ipynb" target="_parent">
+    <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/>
+</a>
+
+
 ### Introduction
 Pipeline integrity management is crucial in ensuring the safety and reliability of gas and oil transportation. In-line inspection (ILI) tools are extensively used to detect and measure anomalies in pipelines. Accurately predicting the maximum depth of these anomalies is essential for proactive maintenance and risk mitigation. 
 
